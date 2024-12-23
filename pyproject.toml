@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "aoarashi"
+version = "0.1.0"
+description = "Language Processing Toolkit"
+authors = ["Kosuke Mori <kosuke.mori.5120@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+torch = "^2.5.1"
+torchaudio = "^2.5.1"
+sentencepiece = "^0.2.0"
+hydra-core = "^1.3.2"
+jiwer = "^3.0.5"
+sacrebleu = "^2.4.3"
+pytest = "^8.3.4"
+tqdm = "^4.67.1"
+g2p-en = "^2.1.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
