@@ -44,7 +44,9 @@ class Model(nn.Module):
     ):
         super().__init__()
         self.blank_token_id = vocab_size - 1
-        self.frontend = LogMelSpectrogram(n_fft=n_fft, hop_length=hop_length, win_length=win_length, n_mels=n_mels)
+        self.frontend = LogMelSpectrogram(
+            fft_size=n_fft, hop_size=hop_length, window_size=win_length, mel_size=n_mels, sample_rate=16000
+        )
         self.specaug = SpecAugment(
             num_time_masks=num_time_masks,
             num_freq_masks=num_freq_masks,

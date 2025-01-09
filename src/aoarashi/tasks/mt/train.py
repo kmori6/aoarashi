@@ -18,7 +18,6 @@ def main(config: DictConfig):
     valid_dataset = Dataset(config.dataset.valid_json_path)
     tokenizer = Tokenizer(config.tokenizer.model_path)
     model = Model(**config.model)
-    print(model)
     collate_fn = CollateFn(tokenizer, config.model.bos_token_id, config.model.eos_token_id, config.model.pad_token_id)
     train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn, **config.dataloader.train)
     valid_dataloader = DataLoader(valid_dataset, collate_fn=collate_fn, **config.dataloader.valid)
