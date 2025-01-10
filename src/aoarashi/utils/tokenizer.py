@@ -34,8 +34,8 @@ class PhonemeTokenizer:
         self.g2p = G2p()
 
     def encode(self, text: str) -> list:
-        phones = [p for p in self.g2p(text.strip()) if p != " "]
-        return [self.token2idx[p] for p in phones]
+        phonemes = [p for p in self.g2p(text.strip()) if p != " "]
+        return [self.token2idx.get(p, self.token2idx["<unk>"]) for p in phonemes]
 
     def decode(self, ids: list) -> str:
         return "".join([self.token_list[i] for i in ids])
