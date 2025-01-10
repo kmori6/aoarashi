@@ -16,6 +16,8 @@ sacrebleu = "^2.4.3"
 pytest = "^8.3.4"
 tqdm = "^4.67.1"
 g2p-en = "^2.1.0"
+pyworld = "^0.3.4"
+scipy = "^1.15.0"
 
 
 [build-system]

@@ -20,8 +20,8 @@ def variance_loss(
     p: torch.Tensor,
     e_hat: torch.Tensor,
     e: torch.Tensor,
-    mask: torch.Tensor,
-    eps: float = 1e-12,
+    token_mask: torch.Tensor,
+    feat_mask: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
 
@@ -32,7 +32,8 @@ def variance_loss(
         p (torch.Tensor): Target pitch tensor (batch, sequence).
         e_hat (torch.Tensor): Predicted energy tensor (batch, sequence).
         e (torch.Tensor): Target energy tensor (batch, sequence).
-        mask (torch.Tensor): Mask tensor (batch, sequence).
+        token_mask (torch.Tensor): Token embedding mask tensor (batch, sequence).
+        feat_mask (torch.Tensor): Mel-spectrogram mask tensor (batch, frame).
 
     Returns:
         Tensor: Duration predictor loss value.
@@ -43,46 +44,46 @@ def variance_loss(
     assert d_hat.shape == d.shape, f"{d_hat.shape} != {d.shape}"
     assert p_hat.shape == p.shape, f"{p_hat.shape} != {p.shape}"
     assert e_hat.shape == e.shape, f"{e_hat.shape} != {e.shape}"
-    duration_loss = nn.functional.mse_loss(d_hat, d, reduction="none") * mask
-    duration_loss = duration_loss.sum() / mask.sum()
-    pitch_loss = nn.functional.mse_loss(p_hat, p, reduction="none") * mask
-    pitch_loss = pitch_loss.sum() / mask.sum()
-    energy_loss = nn.functional.mse_loss(e_hat, e, reduction="none") * mask
-    energy_loss = energy_loss.sum() / mask.sum()
+    duration_loss = nn.functional.mse_loss(d_hat, d, reduction="none")
+    duration_loss = duration_loss.masked_fill(~token_mask, 0.0).sum() / token_mask.sum()
+    pitch_loss = nn.functional.mse_loss(p_hat, p, reduction="none")
+    pitch_loss = pitch_loss.masked_fill(~feat_mask, 0.0).sum() / feat_mask.sum()
+    energy_loss = nn.functional.mse_loss(e_hat, e, reduction="none")
+    energy_loss = energy_loss.masked_fill(~feat_mask, 0.0).sum() / feat_mask.sum()
     return duration_loss, pitch_loss, energy_loss
 
 
 class Predictor(nn.Module):
-    def __init__(self, input_dim: int, kernel_size: int, dropout_rate: float):
+    def __init__(self, input_size: int, kernel_size: int, dropout_rate: float):
         super().__init__()
-        self.conv1 = nn.Conv1d(input_dim, input_dim, kernel_size, padding=kernel_size // 2)
-        self.layer_norm1 = nn.LayerNorm(input_dim)
+        self.conv1 = nn.Conv1d(input_size, input_size, kernel_size, padding=kernel_size // 2)
+        self.layer_norm1 = nn.LayerNorm(input_size)
         self.dropout1 = nn.Dropout(dropout_rate)
-        self.conv2 = nn.Conv1d(input_dim, input_dim, kernel_size, padding=kernel_size // 2)
-        self.layer_norm2 = nn.LayerNorm(input_dim)
+        self.conv2 = nn.Conv1d(input_size, input_size, kernel_size, padding=kernel_size // 2)
+        self.layer_norm2 = nn.LayerNorm(input_size)
         self.dropout2 = nn.Dropout(dropout_rate)
-        self.linear = nn.Linear(input_dim, 1)
+        self.linear = nn.Linear(input_size, 1)
         self.relu = nn.ReLU()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
 
         Args:
-            x (torch.Tensor): Token embedding (batch, sequence, input_dim).
+            x (torch.Tensor): Embedding tensor (batch, sequence or frame, input_size).
 
         Returns:
-            torch.Tensor: Predicted tensor (batch, sequence).
+            torch.Tensor: Predicted tensor (batch, sequence or frame).
         """
-        x = torch.transpose(x, 1, 2)  # (batch, input_dim, sequence)
-        x = self.conv1(x)  # (batch, input_dim, sequence)
+        x = torch.transpose(x, 1, 2)  # (batch, input_size, sequence)
+        x = self.conv1(x)  # (batch, input_size, sequence)
         x = self.relu(x)
-        x = torch.transpose(self.layer_norm1(torch.transpose(x, 1, 2)), 1, 2)
+        x = self.layer_norm1(x.transpose(1, 2)).transpose(1, 2)
         x = self.dropout1(x)
         x = self.conv2(x)
         x = self.relu(x)
-        x = torch.transpose(self.layer_norm2(torch.transpose(x, 1, 2)), 1, 2)
+        x = self.layer_norm2(x.transpose(1, 2)).transpose(1, 2)
         x = self.dropout2(x)
-        x = self.linear(torch.transpose(x, 1, 2)).squeeze(2)  # (batch, sequence)
+        x = self.linear(x.transpose(1, 2)).squeeze(2)  # (batch, sequence)
         return x
 
 
@@ -193,14 +194,7 @@ class FastSpeech2Decoder(nn.Module):
         return x
 
 
-class ModifiedVarianceAdapter(nn.Module):
-    """Modified variance adapter.
-
-    Proposed in D. Lim et al., "JETS: jointly training fastspeech2 and fifi-gan for end to end text to speech,"
-    in Interspeech, 2022, pp. 21-25.
-
-    """
-
+class VarianceAdapter(nn.Module):
     def __init__(self, d_model: int, kernel_size: int, dropout_rate: float):
         super().__init__()
         self.duration_predictor = Predictor(d_model, kernel_size, dropout_rate)
@@ -213,54 +207,55 @@ class ModifiedVarianceAdapter(nn.Module):
         self.length_regulator = GaussianResampling()
 
     def forward(
-        self, x: torch.Tensor, token_mask: torch.Tensor, d: torch.Tensor, p: torch.Tensor, e: torch.Tensor
+        self, x: torch.Tensor, duration: torch.Tensor, pitch: torch.Tensor, energy: torch.Tensor, mask: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
 
         Args:
             x (torch.Tensor): Token embedding tensor (batch, sequence, d_model).
-            token_mask (torch.Tensor): Token embedding mask tensor (batch, sequence).
-            d torch.Tensor: Duration tensor (batch, sequence).
-            p torch.Tensor: Pitch tensor (batch, sequence).
-            e torch.Tensor: Energy tensor (batch, sequence).
+            duration (torch.Tensor): Duration tensor (batch, sequence).
+            pitch (torch.Tensor): Pitch tensor (batch, frame).
+            energy (torch.Tensor): Energy tensor (batch, frame).
+            mask (torch.Tensor): Token embedding mask tensor (batch, sequence).
 
         Returns:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
                 torch.Tensor: Token embedding tensor (batch, frame, d_model).
-                torch.Tensor: Duration tensor in logarithm domain (batch, sequence).
-                torch.Tensor: Pitch tensor (batch, sequence).
+                torch.Tensor: Predicted duration tensor in logarithmic domain (batch, sequence).
+                torch.Tensor: Predicted pitch tensor (batch, frame).
                 torch.Tensor: Energy tensor (batch, sequence).
         """
         d_hat = self.duration_predictor(x)  # (batch, sequence)
-        p_hat = self.pitch_predictor(x)  # (batch, sequence)
-        e_hat = self.energy_predictor(x)  # (batch, sequence)
+        # NOTE: use ground truth duration for training
+        x = self.length_regulator(x=x, d=duration, mask=mask)  # (batch, frame, d_model)
+        p_hat = self.pitch_predictor(x)  # (batch, frame)
+        e_hat = self.energy_predictor(x)  # (batch, frame)
         # NOTE: use ground truth pitch and energy for training
-        p_embed = self.pitch_embedding(p[:, None, :]).transpose(1, 2)  # (batch, d_model, sequence)
-        e_embed = self.energy_embedding(e[:, None, :]).transpose(1, 2)  # (batch, d_model, sequence)
-        x = x + p_embed + e_embed
-        # length regulator
-        x = self.length_regulator(x=x, d=d, mask=token_mask)  # (batch, frame, d_model)
+        p = self.pitch_embedding(pitch[:, None, :]).transpose(1, 2)  # (batch, frame, d_model)
+        e = self.energy_embedding(energy[:, None, :]).transpose(1, 2)  # (batch, frame, d_model)
+        x = x + p + e
         return x, d_hat, p_hat, e_hat
 
     @torch.no_grad()
-    def inference(self, x: torch.Tensor, token_mask: torch.Tensor) -> torch.Tensor:
+    def inference(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """
 
         Args:
             x (torch.Tensor): Token embedding tensor (batch, sequence, d_model).
-            token_mask (torch.Tensor): Token embedding mask tensor (batch, sequence).
+            mask (torch.Tensor): Token mask tensor (batch, sequence).
 
         Returns:
             torch.Tensor: Token embedding tensor (batch, frame, d_model).
         """
         d_hat = self.duration_predictor(x)  # (batch, sequence)
-        p_hat = self.pitch_predictor(x)  # (batch, sequence)
-        e_hat = self.energy_predictor(x)  # (batch, sequence)
-        p_embed = self.pitch_embedding(p_hat[:, None, :]).transpose(1, 2)  # (batch, d_model, sequence)
-        e_embed = self.energy_embedding(e_hat[:, None, :]).transpose(1, 2)  # (batch, d_model, sequence)
-        x = x + p_embed + e_embed
-        # length regulator
+        # NOTE: use predicted duration for inference
         # NOTE: duration is logarithm domain
         d_hat = torch.exp(d_hat)
-        x = self.length_regulator(x=x, d=d_hat, mask=token_mask)  # (batch, frame, d_model)
+        x = self.length_regulator(x=x, d=d_hat, mask=mask)  # (batch, frame, d_model)
+        p_hat = self.pitch_predictor(x)  # (batch, frame)
+        e_hat = self.energy_predictor(x)  # (batch, frame)
+        # NOTE: use predicted pitch and energy for inference
+        p = self.pitch_embedding(p_hat[:, None, :]).transpose(1, 2)  # (batch, frame, d_model)
+        e = self.energy_embedding(e_hat[:, None, :]).transpose(1, 2)  # (batch, frame, d_model)
+        x = x + p + e
         return x
