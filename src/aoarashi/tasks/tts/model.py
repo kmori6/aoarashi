@@ -6,20 +6,20 @@ from aoarashi.modules.fastspeech2 import (
     FastSpeech2Decoder,
     FastSpeech2Encoder,
     VarianceAdapter,
-    variance_loss,
+    VarianceLoss,
 )
 from aoarashi.modules.hifi_gan import (
     Discriminator,
+    DiscriminatorAdversarialLoss,
+    FeatureMatchingLoss,
     Generator,
-    discriminator_adversarial_loss,
-    feature_matching_loss,
-    generator_adversarial_loss,
-    mel_spectrogram_loss,
+    GeneratorAdversarialLoss,
+    MelSpectrogramLoss,
 )
 from aoarashi.modules.log_mel_spectrogram import LogMelSpectrogram
-from aoarashi.modules.one_tts import AlignmentModule
+from aoarashi.modules.one_tts import AlignmentModule, hard_alignment
 from aoarashi.modules.pitch import Pitch
-from aoarashi.modules.rad_tts import bin_loss, forward_sum_loss
+from aoarashi.modules.rad_tts import BinalizationLoss, ForwardSumLoss
 from aoarashi.utils.mask import sequence_mask
 
 
@@ -44,9 +44,9 @@ class Jets(nn.Module):
         self.encoder = FastSpeech2Encoder(
             vocab_size, d_model, d_ff, num_layers, num_heads, dropout_rate, ff_kernel_size, pad_token_id
         )
-        self.decoder = FastSpeech2Decoder(d_model, d_mel, d_ff, num_layers, num_heads, dropout_rate, ff_kernel_size)
+        self.decoder = FastSpeech2Decoder(d_model, d_model, d_ff, num_layers, num_heads, dropout_rate, ff_kernel_size)
         self.variance_adapter = VarianceAdapter(d_model, adapter_kernel_size, adapter_dropout_rate)
-        self.generator = Generator(d_mel)
+        self.generator = Generator(d_model)
         self.random_slice_size = random_slice_size
 
     def forward(
@@ -72,20 +72,23 @@ class Jets(nn.Module):
                 torch.Tensor: Mel spectrogram tensor (batch, frame, mel_bins).
                 dict[str, torch.Tensor]: Statistics.
         """
+        b, t, f = token.shape[0], token.shape[1], feat.shape[1]
         token_mask = sequence_mask(token_length)  # (batch, sequence)
         feat_mask = sequence_mask(feat_length)  # (batch, frame)
         # transformer encoder
-        x = self.encoder(token, token_mask[:, None, None, :])  # (batch, sequence, d_model)
+        x = self.encoder(token, token_mask[:, None, :].expand(b, t, t))  # (batch, sequence, d_model)
         # alignment module
-        duration, log_a_soft, a_hard = self.alignment_module(
-            x, feat, token_length, feat_length, token_mask
-        )  # (batch, sequence)
+        log_a_soft = self.alignment_module(h=x, m=feat, mask=token_mask)  # (batch, sequence, frame)
+        a_hard = hard_alignment(
+            log_a_soft=log_a_soft, token_length=token_length, feat_length=feat_length
+        )  # (batch, frame, sequence)
+        duration = torch.sum(a_hard, dim=-1)  # (batch, sequence)
         # variance adapter
         x, d_hat, p_hat, e_hat = self.variance_adapter(
             x=x, duration=duration, pitch=pitch, energy=energy, mask=token_mask
         )  # (batch, frame, d_model)
         # transformer decoder
-        x = self.decoder(x, feat_mask[:, None, None, :])  # (batch, frame, n_mels)
+        x = self.decoder(x, feat_mask[:, None, :].expand(b, f, f))  # (batch, frame, n_mels)
         # generator
         x = x.transpose(1, 2)  # (batch, n_mels, frame)
         # randomly slice mel spectrogram tensor within the feature length
@@ -164,16 +167,26 @@ class Model(nn.Module):
 
         # external modules
         self.mel_spectrogram = LogMelSpectrogram(
-            fft_size=1024, hop_size=256, window_size=1024, mel_size=d_mel, sample_rate=22050
+            fft_size=1024, hop_size=256, window_size=1024, mel_size=d_mel, sample_rate=22050, from_linear=True
         )
         self.pitch = Pitch(sample_rate=22050, hop_size=256)
         self.energy = Energy(fft_size=1024, hop_size=256, window_size=1024)
-
+        self.hop_size = self.mel_spectrogram.hop_size
         self.random_slice_size = random_slice_size
         self.lambda_fm = lambda_fm
         self.lambda_mel = lambda_mel
         self.lambda_align = lambda_align
         self.lambda_var = lambda_var
+
+        self.bin_loss_fn = BinalizationLoss()
+        self.fs_loss_fn = ForwardSumLoss()
+        self.gen_adv_loss_fn = GeneratorAdversarialLoss()
+        self.disc_adv_loss_fn = DiscriminatorAdversarialLoss()
+        self.fm_loss_fn = FeatureMatchingLoss()
+        self.mel_loss_fn = MelSpectrogramLoss(
+            fft_size=1024, hop_size=256, window_size=1024, mel_size=d_mel, sample_rate=22050
+        )
+        self.var_loss_fn = VarianceLoss()
 
     def forward(
         self,
@@ -227,14 +240,10 @@ class Model(nn.Module):
         )
         # NOTE: hop length equals to upsampling factor of Hifi-GAN generator
         audio = torch.stack(
-            [
-                audio[
-                    b, s * self.mel_spectrogram.hop_size : (s + self.random_slice_size) * self.mel_spectrogram.hop_size
-                ]
-                for b, s in enumerate(start)
-            ],
+            [audio[b, s * self.hop_size : (s + self.random_slice_size) * self.hop_size] for b, s in enumerate(start)],
         )
         audio = audio[:, None, :]  # (batch, 1, random_slice_size * hop_size)
+        assert fake_wav.shape[2] == self.hop_size * self.random_slice_size
         assert fake_wav.shape == audio.shape, f"{fake_wav.shape} != {audio.shape}"
 
         # loss calculation
@@ -242,25 +251,23 @@ class Model(nn.Module):
             # NOTE: detach all gradient computation in the generator
             fake_xs, _ = self.discriminator(fake_wav.detach())
             real_xs, _ = self.discriminator(audio)
-            loss = discriminator_adversarial_loss(real_xs=real_xs, fake_xs=fake_xs)
+            loss = self.disc_adv_loss_fn(real_xs=real_xs, fake_xs=fake_xs)
             stats = {"loss": loss.item()}
             return loss, stats
         else:
             fake_xs, fake_feats = self.discriminator(fake_wav)
-            # NOTE: disable gradient computation in the discriminator from real audio
-            with torch.no_grad():
-                _, real_feats = self.discriminator(audio)
+            _, real_feats = self.discriminator(audio)
 
-        # NOTE: stft does not support bfloat16
-        wav_length = torch.tensor([fake_wav.shape[1]] * len(fake_wav), dtype=torch.long, device=fake_wav.device)
-        fake_mel, _ = self.mel_spectrogram(fake_wav[:, 0, :].to(torch.float32), wav_length)  # (batch, frame, mel_bins)
-        real_mel, _ = self.mel_spectrogram(audio[:, 0, :].to(torch.float32), wav_length)  # (batch, frame, mel_bins)
-        loss_adv = generator_adversarial_loss(fake_xs)
-        loss_fm = feature_matching_loss(real_feats=real_feats, fake_feats=fake_feats)
-        loss_mel = mel_spectrogram_loss(fake_mel=fake_mel, real_mel=real_mel)
+        loss_adv = self.gen_adv_loss_fn(fake_xs)
+        loss_fm = self.fm_loss_fn(real_feats=real_feats, fake_feats=fake_feats)
+        loss_mel = self.mel_loss_fn(
+            fake_wav=fake_wav[:, 0, :].to(torch.float32),
+            real_wav=audio[:, 0, :].to(torch.float32),
+            length=torch.tensor([fake_wav.shape[2]] * len(fake_wav), dtype=torch.long, device=fake_wav.device),
+        )
         # NOTE: convert duration into logarithmic domain for ease of prediction (FastSpeech)
         duration = torch.log(duration + eps)
-        d_loss, p_loss, e_loss = variance_loss(
+        d_loss, p_loss, e_loss = self.var_loss_fn(
             d_hat=d_hat,
             d=duration,
             p_hat=p_hat,
@@ -271,8 +278,8 @@ class Model(nn.Module):
             feat_mask=feat_mask,
         )
         loss_var = d_loss + p_loss + e_loss
-        loss_fs = forward_sum_loss(x=log_a_soft, token_length=token_length, feat_length=feat_length)
-        loss_bin = bin_loss(log_a_soft=log_a_soft, a_hard=a_hard)
+        loss_fs = self.fs_loss_fn(x=log_a_soft, token_length=token_length, feat_length=feat_length)
+        loss_bin = self.bin_loss_fn(log_a_soft=log_a_soft, a_hard=a_hard)
         loss_align = loss_fs + loss_bin
         loss = (
             loss_adv

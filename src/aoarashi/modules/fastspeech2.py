@@ -13,44 +13,50 @@ from aoarashi.modules.eats import GaussianResampling
 from aoarashi.modules.transformer import Encoder, FeedForward, PositionalEncoding
 
 
-def variance_loss(
-    d_hat: torch.Tensor,
-    d: torch.Tensor,
-    p_hat: torch.Tensor,
-    p: torch.Tensor,
-    e_hat: torch.Tensor,
-    e: torch.Tensor,
-    token_mask: torch.Tensor,
-    feat_mask: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
+class VarianceLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.mse_loss_fn = nn.MSELoss(reduction="none")
 
-    Args:
-        d_hat (torch.Tensor): Predicted duration in logarithmic domain tensor (batch, sequence).
-        d (torch.Tensor): Target duration tensor (batch, sequence).
-        p_hat (torch.Tensor): Predicted pitch tensor (batch, sequence).
-        p (torch.Tensor): Target pitch tensor (batch, sequence).
-        e_hat (torch.Tensor): Predicted energy tensor (batch, sequence).
-        e (torch.Tensor): Target energy tensor (batch, sequence).
-        token_mask (torch.Tensor): Token embedding mask tensor (batch, sequence).
-        feat_mask (torch.Tensor): Mel-spectrogram mask tensor (batch, frame).
+    def forward(
+        self,
+        d_hat: torch.Tensor,
+        d: torch.Tensor,
+        p_hat: torch.Tensor,
+        p: torch.Tensor,
+        e_hat: torch.Tensor,
+        e: torch.Tensor,
+        token_mask: torch.Tensor,
+        feat_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
 
-    Returns:
-        Tensor: Duration predictor loss value.
-        Tensor: Pitch predictor loss value.
-        Tensor: Energy predictor loss value.
+        Args:
+            d_hat (torch.Tensor): Predicted duration in logarithmic domain tensor (batch, sequence).
+            d (torch.Tensor): Target duration tensor (batch, sequence).
+            p_hat (torch.Tensor): Predicted pitch tensor (batch, sequence).
+            p (torch.Tensor): Target pitch tensor (batch, sequence).
+            e_hat (torch.Tensor): Predicted energy tensor (batch, sequence).
+            e (torch.Tensor): Target energy tensor (batch, sequence).
+            token_mask (torch.Tensor): Token embedding mask tensor (batch, sequence).
+            feat_mask (torch.Tensor): Mel-spectrogram mask tensor (batch, frame).
 
-    """
-    assert d_hat.shape == d.shape, f"{d_hat.shape} != {d.shape}"
-    assert p_hat.shape == p.shape, f"{p_hat.shape} != {p.shape}"
-    assert e_hat.shape == e.shape, f"{e_hat.shape} != {e.shape}"
-    duration_loss = nn.functional.mse_loss(d_hat, d, reduction="none")
-    duration_loss = duration_loss.masked_fill(~token_mask, 0.0).sum() / token_mask.sum()
-    pitch_loss = nn.functional.mse_loss(p_hat, p, reduction="none")
-    pitch_loss = pitch_loss.masked_fill(~feat_mask, 0.0).sum() / feat_mask.sum()
-    energy_loss = nn.functional.mse_loss(e_hat, e, reduction="none")
-    energy_loss = energy_loss.masked_fill(~feat_mask, 0.0).sum() / feat_mask.sum()
-    return duration_loss, pitch_loss, energy_loss
+        Returns:
+            Tensor: Duration predictor loss value.
+            Tensor: Pitch predictor loss value.
+            Tensor: Energy predictor loss value.
+
+        """
+        assert d_hat.shape == d.shape, f"{d_hat.shape} != {d.shape}"
+        assert p_hat.shape == p.shape, f"{p_hat.shape} != {p.shape}"
+        assert e_hat.shape == e.shape, f"{e_hat.shape} != {e.shape}"
+        duration_loss = self.mse_loss_fn(d_hat, d)
+        duration_loss = duration_loss.masked_fill(~token_mask, 0.0).sum() / token_mask.sum()
+        pitch_loss = self.mse_loss_fn(p_hat, p)
+        pitch_loss = pitch_loss.masked_fill(~feat_mask, 0.0).sum() / feat_mask.sum()
+        energy_loss = self.mse_loss_fn(e_hat, e)
+        energy_loss = energy_loss.masked_fill(~feat_mask, 0.0).sum() / feat_mask.sum()
+        return duration_loss, pitch_loss, energy_loss
 
 
 class Predictor(nn.Module):
