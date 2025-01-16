@@ -33,7 +33,7 @@ class Pitch(nn.Module):
                 frame_period=self.hop_size / self.sample_rate * 1000,  # to make nearly equal frames to STFT
             )  # raw pitch extractor
             x = pw.stonemask(audio_numpy, _f0, t, self.sample_rate)
-            # linear interpolation to fill the unvoiced frame use nn.functional.interpolate
+            # linear interpolation to fill the unvoiced frames
             mask = x > 0
             mask[0] = mask[-1] = True
             x = np.interp(np.arange(len(x)), t[mask], x[mask])

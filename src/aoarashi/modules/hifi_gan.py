@@ -145,16 +145,20 @@ class ResBlock(nn.Module):
             [
                 nn.Sequential(
                     nn.LeakyReLU(negative_slope),
-                    nn.Conv1d(
-                        hidden_size,
-                        hidden_size,
-                        kernel_size,
-                        stride=1,
-                        padding=(dilation * (kernel_size - 1)) // 2,
-                        dilation=dilation,
+                    weight_norm(
+                        nn.Conv1d(
+                            hidden_size,
+                            hidden_size,
+                            kernel_size,
+                            stride=1,
+                            padding=(dilation * (kernel_size - 1)) // 2,
+                            dilation=dilation,
+                        )
                     ),
                     nn.LeakyReLU(negative_slope),
-                    nn.Conv1d(hidden_size, hidden_size, kernel_size, stride=1, padding=(kernel_size - 1) // 2),
+                    weight_norm(
+                        nn.Conv1d(hidden_size, hidden_size, kernel_size, stride=1, padding=(kernel_size - 1) // 2)
+                    ),
                 )
                 for dilation in dilations
             ]
@@ -214,17 +218,19 @@ class Generator(nn.Module):
         negative_slope: float = 0.1,
     ):
         super().__init__()
-        self.conv_input = nn.Conv1d(input_size, hidden_size, kernel_size=7, padding=3)
+        self.conv_input = weight_norm(nn.Conv1d(input_size, hidden_size, kernel_size=7, padding=3))
         self.upsamples = nn.ModuleList(
             [
                 nn.Sequential(
                     nn.LeakyReLU(negative_slope),
-                    nn.ConvTranspose1d(
-                        hidden_size // 2 ** (i - 1),
-                        hidden_size // 2**i,
-                        kernel_size=kernel_size,
-                        stride=kernel_size // 2,
-                        padding=kernel_size // 4,
+                    weight_norm(
+                        nn.ConvTranspose1d(
+                            hidden_size // 2 ** (i - 1),
+                            hidden_size // 2**i,
+                            kernel_size=kernel_size,
+                            stride=kernel_size // 2,
+                            padding=kernel_size // 4,
+                        )
                     ),
                     MultiReceptiveFieldFusion(
                         hidden_size // 2**i, negative_slope, residual_kernel_sizes, dilations_list
@@ -234,12 +240,10 @@ class Generator(nn.Module):
             ]
         )
         self.leaky_relu = nn.LeakyReLU()
-        self.conv_out = nn.Conv1d(hidden_size // (2 ** len(upsample_kernel_sizes)), 1, kernel_size=7, padding=3)
+        self.conv_out = weight_norm(
+            nn.Conv1d(hidden_size // (2 ** len(upsample_kernel_sizes)), 1, kernel_size=7, padding=3)
+        )
         self.tanh = nn.Tanh()
-
-        for module in self.modules():
-            if isinstance(module, nn.Conv1d) or isinstance(module, nn.ConvTranspose1d):
-                weight_norm(module)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -267,32 +271,28 @@ class PeriodDiscriminator(nn.Module):
             [
                 # NOTE: set padding size to 1 to make L_out = L_in // 3
                 nn.Sequential(
-                    nn.Conv2d(1, 32, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0)),
+                    weight_norm(nn.Conv2d(1, 32, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0))),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv2d(32, 128, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0)),
+                    weight_norm(nn.Conv2d(32, 128, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0))),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv2d(128, 512, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0)),
+                    weight_norm(nn.Conv2d(128, 512, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0))),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv2d(512, 1024, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0)),
+                    weight_norm(nn.Conv2d(512, 1024, kernel_size=(5, 1), stride=(3, 1), padding=(2, 0))),
                     nn.LeakyReLU(negative_slope),
                 ),
             ]
         )
         self.layer = nn.Sequential(
-            nn.Conv2d(1024, 1024, kernel_size=(5, 1), padding=(2, 0)),
+            weight_norm(nn.Conv2d(1024, 1024, kernel_size=(5, 1), padding=(2, 0))),
             nn.LeakyReLU(negative_slope),
         )
-        self.conv_out = nn.Conv2d(1024, 1, kernel_size=(3, 1), padding=(1, 0))
-
-        for module in self.modules():
-            if isinstance(module, nn.Conv2d):
-                weight_norm(module)
+        self.conv_out = weight_norm(nn.Conv2d(1024, 1, kernel_size=(3, 1), padding=(1, 0)))
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """
@@ -342,40 +342,36 @@ class ScaleDiscriminator(nn.Module):
         self.layers = nn.ModuleList(
             [
                 nn.Sequential(
-                    nn.Conv1d(1, 128, kernel_size=15, stride=1, padding=7),
+                    weight_norm(nn.Conv1d(1, 128, kernel_size=15, stride=1, padding=7)),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv1d(128, 128, kernel_size=41, stride=2, groups=4, padding=20),
+                    weight_norm(nn.Conv1d(128, 128, kernel_size=41, stride=2, groups=4, padding=20)),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv1d(128, 256, kernel_size=41, stride=2, groups=16, padding=20),
+                    weight_norm(nn.Conv1d(128, 256, kernel_size=41, stride=2, groups=16, padding=20)),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv1d(256, 512, kernel_size=41, stride=4, groups=16, padding=20),
+                    weight_norm(nn.Conv1d(256, 512, kernel_size=41, stride=4, groups=16, padding=20)),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv1d(512, 1024, kernel_size=41, stride=4, groups=16, padding=20),
+                    weight_norm(nn.Conv1d(512, 1024, kernel_size=41, stride=4, groups=16, padding=20)),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv1d(1024, 1024, kernel_size=41, stride=1, groups=16, padding=20),
+                    weight_norm(nn.Conv1d(1024, 1024, kernel_size=41, stride=1, groups=16, padding=20)),
                     nn.LeakyReLU(negative_slope),
                 ),
                 nn.Sequential(
-                    nn.Conv1d(1024, 1024, kernel_size=5, stride=1, padding=2),
+                    weight_norm(nn.Conv1d(1024, 1024, kernel_size=5, stride=1, padding=2)),
                     nn.LeakyReLU(negative_slope),
                 ),
             ]
         )
-        self.conv_out = nn.Conv1d(1024, 1, kernel_size=3, stride=1, padding=1)
-
-        for module in self.modules():
-            if isinstance(module, nn.Conv1d):
-                weight_norm(module)
+        self.conv_out = weight_norm(nn.Conv1d(1024, 1, kernel_size=3, stride=1, padding=1))
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """
