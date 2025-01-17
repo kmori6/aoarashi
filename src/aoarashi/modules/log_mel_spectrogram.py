@@ -13,6 +13,8 @@ class LogMelSpectrogram(nn.Module):
         window_size: int,
         mel_size: int,
         sample_rate: int,
+        min_freq: float,
+        max_freq: float,
         eps: float = 1e-12,
         from_linear: bool = False,
     ):
@@ -24,7 +26,14 @@ class LogMelSpectrogram(nn.Module):
         self.register_buffer(
             "fbank",
             melscale_fbanks(
-                n_freqs=fft_size // 2 + 1, f_min=0.0, f_max=sample_rate / 2, n_mels=mel_size, sample_rate=sample_rate
+                n_freqs=fft_size // 2 + 1,
+                f_min=min_freq,
+                f_max=max_freq,
+                n_mels=mel_size,
+                sample_rate=sample_rate,
+                # NOTE: parameters for librosa.filters.mel of htk=False and norm="slaney"
+                norm="slaney",
+                mel_scale="slaney",
             ),
         )  # (freq_size, mel_size)
         self.from_linear = from_linear
@@ -34,13 +43,13 @@ class LogMelSpectrogram(nn.Module):
         """
 
         Args:
-            speech (torch.Tensor): Speech tensor (batch, sample).
-            length (torch.Tensor): Speech length tensor (batch,).
+            speech (torch.Tensor): Speech tensor (batch_size, sequence_length).
+            length (torch.Tensor): Speech length tensor (batch_size,).
 
         Returns:
             tuple[torch.Tensor, torch.Tensor]:
-                torch.Tensor: Log mel-spectrogram tensor (batch, sample // hop_size + 1, mel_size).
-                torch.Tensor: Mask tensor (batch, sample // hop_size + 1).
+                torch.Tensor: Log mel-spectrogram tensor (batch_size, sequence_length // hop_size + 1, mel_size).
+                torch.Tensor: Mask tensor (batch_size, sequence_length // hop_size + 1).
         """
         x = torch.stft(
             speech,
@@ -50,12 +59,12 @@ class LogMelSpectrogram(nn.Module):
             window=self.window.to(dtype=speech.dtype, device=speech.device),
             center=True,
             return_complex=True,
-        )  # (batch, freq_size, frame)
-        mask = sequence_mask(1 + length // self.hop_size)  # (batch, frame)
-        x = torch.view_as_real(x).transpose(1, 2).pow(2).sum(-1)  # (batch, frame, freq_size)
+        )  # (batch_size, frame_length, freq_size) where sequence_length // hop_size + 1
+        mask = sequence_mask(1 + length // self.hop_size)  # (batch_size, frame_length)
+        x = torch.view_as_real(x).transpose(1, 2).pow(2).sum(-1)  # (batch_size, frame_length, freq_size)
         if self.from_linear:
             x = torch.sqrt(x)
-        x = torch.matmul(x, self.fbank)  # (batch, frame, n_mels)
+        x = torch.matmul(x, self.fbank)  # (batch_size, frame_length, mel_size)
         x = torch.log(x + self.eps)
         x = x.masked_fill(~mask[:, :, None], 0.0)
         return x, mask
