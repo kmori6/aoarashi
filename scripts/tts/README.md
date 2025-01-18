@@ -28,6 +28,17 @@ poetry run python ../../src/aoarashi/tasks/tts/train.py \
     train.checkpoint_path=
 ```
 
+## Evaluate model
+```bash
+poetry run python ../../src/aoarashi/tasks/tts/evaluate.py \
+    --config-path="$(pwd)" \
+    --config-name="config" \
+    dataset.test_json_path="data/test.json" \
+    tokenizer.model_path="results/token.txt" \
+    evaluate.out_dir="results" \
+    evaluate.model_path="<checkpoint_path>"
+```
+
 ## Infer model
 ```bash
 poetry run python ../../src/aoarashi/tasks/tts/infer.py \
