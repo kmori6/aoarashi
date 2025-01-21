@@ -6,7 +6,7 @@ import torchaudio
 import yaml
 
 from aoarashi.tasks.tts.model import Model
-from aoarashi.utils.tokenizer import PhonemeTokenizer
+from aoarashi.utils.tokenizer import PhonemeTokenizer, normalize_text
 
 
 def main():
@@ -24,9 +24,9 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     tokenizer = PhonemeTokenizer(args.token_path)
     model = Model(**config["model"])
-    model.load_state_dict(torch.load(args.checkpoint_path)["model_state_dict"])
+    model.load_state_dict(torch.load(args.checkpoint_path, map_location=torch.device("cpu"))["model_state_dict"])
     model.eval()
-    token = tokenizer.encode(args.input_text)
+    token = tokenizer.encode(normalize_text(args.input_text))
     wav = model.synthesize(torch.tensor(token, dtype=torch.long))  # (1, 1, sample)
     torchaudio.save(f"{args.out_dir}/output.wav", wav[:, 0, :], sample_rate=22050)
 

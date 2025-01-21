@@ -20,6 +20,8 @@ pyworld = "^0.3.4"
 scipy = "^1.15.0"
 llvmlite = "^0.43.0"
 librosa = "^0.10.2.post1"
+pysptk = "^1.0.1"
+fastdtw = "^0.3.4"
 
 
 [build-system]

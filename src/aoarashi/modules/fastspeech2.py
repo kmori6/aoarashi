@@ -52,6 +52,7 @@ def random_extract_segment(
     start_frame = torch.randint(0, frame_size - segment_size + 1, (batch_size,), device=x.device)
     # NOTE: do not use padding frames
     start_frame = torch.min(start_frame, torch.clamp(feat_length - segment_size, min=0))
+    assert torch.all(start_frame >= 0)
     x_new = extract_segment(x, start_frame, segment_size)
     return x_new, start_frame
 

@@ -24,9 +24,26 @@ def calculate_mel_cepstral_distortion(
     fft_size: int,
     hop_size: int,
     sample_rate: int = 22050,
-    mfc_size: int = 40,
+    mfc_size: int = 34,
     eps: float = 1e-12,
 ) -> float:
+    """
+
+    Based on T. Hayashi et al., "Non-Autoregressive sequence-to-sequence voice conversion,"
+    in ICASSP, 2021, pp. 7068-7072.
+
+    Args:
+        x (np.ndarray): Source waveform of shape (x_sample_length,)
+        y (np.ndarray): Target waveform of shape (y_sample_length,)
+        fft_size (int): FFT size
+        hop_size (int): Hop size
+        sample_rate (int): Sampling rate
+        mfc_size (int): Mel-cepstral coefficient size
+        eps (float): Epsilon
+
+    Returns:
+        float: Mel-cepstral distortion
+    """
     x_frame_length = 1 + (len(x) - fft_size) // hop_size
     y_frame_length = 1 + (len(y) - fft_size) // hop_size
     x_mceps = [

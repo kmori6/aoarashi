@@ -164,7 +164,6 @@ class AdversarialTrainer:
         self.discriminator_scheduler = self._get_scheduler(
             self.discriminator_optimizer, self.config.scheduler.discriminator
         )
-        self.scaler = GradScaler("cuda" if torch.cuda.is_available() else "cpu", enabled=False)
         self.out_dir = Path(self.config.out_dir)
         self.stats: dict[str, Any] = {}
         # load checkpoint
@@ -212,10 +211,9 @@ class AdversarialTrainer:
             # train generator
             self.generator_optimizer.zero_grad()
             self.discriminator_optimizer.zero_grad()
-            with autocast("cuda" if torch.cuda.is_available() else "cpu", dtype=torch.bfloat16):
-                g_loss, g_stats = self.model(**batch, discriminator_training=False)
-            self.scaler.scale(g_loss).backward()
-            self.scaler.step(self.generator_optimizer)
+            g_loss, g_stats = self.model(**batch, discriminator_training=False)
+            g_loss.backward()
+            self.generator_optimizer.step()
             if step % self.config.log_steps == 0:
                 msg = (
                     f"epoch: {epoch + 1}/{self.config.epochs}, "
@@ -228,11 +226,9 @@ class AdversarialTrainer:
             # train discriminator
             self.generator_optimizer.zero_grad()
             self.discriminator_optimizer.zero_grad()
-            with autocast("cuda" if torch.cuda.is_available() else "cpu", dtype=torch.bfloat16):
-                d_loss, d_stats = self.model(**batch, discriminator_training=True)
-            self.scaler.scale(d_loss).backward()
-            self.scaler.step(self.discriminator_optimizer)
-            self.scaler.update()
+            d_loss, d_stats = self.model(**batch, discriminator_training=True)
+            d_loss.backward()
+            self.discriminator_optimizer.step()
             if step % self.config.log_steps == 0:
                 msg = (
                     f"epoch: {epoch + 1}/{self.config.epochs}, "
@@ -252,8 +248,8 @@ class AdversarialTrainer:
         self.model.eval()
         for batch in self.valid_dataloader:
             batch = {k: v.to(self.device) for k, v in batch.items()}
-            _, d_stats = self.model(**batch, discriminator_training=True)
             _, g_stats = self.model(**batch, discriminator_training=False)
+            _, d_stats = self.model(**batch, discriminator_training=True)
         return d_stats, g_stats
 
     def _save_checkpoint(self, epoch: int):
@@ -264,7 +260,6 @@ class AdversarialTrainer:
             "discriminator_optimizer_state_dict": self.discriminator_optimizer.state_dict(),
             "generator_scheduler_state_dict": self.generator_scheduler.state_dict(),
             "discriminator_scheduler_state_dict": self.discriminator_scheduler.state_dict(),
-            "scaler_state_dict": self.scaler.state_dict(),
             "best_valid_loss": self.best_valid_loss,
         }
         torch.save(state, self.out_dir / f"checkpoint_epoch_{epoch}.pt")
@@ -276,7 +271,6 @@ class AdversarialTrainer:
         self.discriminator_optimizer.load_state_dict(checkpoint["discriminator_optimizer_state_dict"])
         self.generator_scheduler.load_state_dict(checkpoint["generator_scheduler_state_dict"])
         self.discriminator_scheduler.load_state_dict(checkpoint["discriminator_scheduler_state_dict"])
-        self.scaler.load_state_dict(checkpoint["scaler_state_dict"])
         self.best_valid_loss = checkpoint["best_valid_loss"]
         self.start_epoch = checkpoint["epoch"]
 
@@ -293,7 +287,7 @@ class AdversarialTrainer:
             )
             self._save_checkpoint(epoch + 1)
             # save stats
-            self.stats[epoch] = {
+            self.stats[epoch + 1] = {
                 "train_discriminator": train_d_stats,
                 "train_generator": train_g_stats,
                 "valid_discriminator": valid_d_stats,

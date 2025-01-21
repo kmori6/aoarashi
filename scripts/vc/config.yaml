@@ -3,31 +3,24 @@ dataset:
   valid_json_path: ???
   test_json_path: ???
 
-tokenizer:
-  model_path: ???
-
-log_mel_spectrogram:
-  
-
 model:
-  vocab_size: 77
   mel_size: 80
+  reduction_factor: 3
   fft_size: 1024
   window_size: 1024
   hop_size: 256
-  sample_rate: 22050
+  sample_rate: 16000
   min_freq: 0.0
   max_freq: 8000.0
-  d_model: 256
+  d_model: 384
   num_heads: 2
-  d_ff: 1024
+  d_ff: 1536
   num_layers: 4
   ff_kernel_size: 3
   adapter_kernel_size: 3
   adapter_dropout_rate: 0.5
   segment_size: 64
   dropout_rate: 0.2
-  pad_token_id: 0
   lambda_fm: 2.0
   lambda_mel: 45.0
   lambda_align: 2.0
@@ -35,13 +28,13 @@ model:
 
 dataloader:
   train:
-    batch_size: 24
+    batch_size: 32
     shuffle: true
     num_workers: 2
     pin_memory: true
     drop_last: true
   valid:
-    batch_size: 24
+    batch_size: 32
     shuffle: false
     num_workers: 2
     pin_memory: true

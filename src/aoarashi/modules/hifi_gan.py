@@ -106,7 +106,16 @@ class FeatureMatchingLoss(nn.Module):
 
 
 class MelSpectrogramLoss(nn.Module):
-    def __init__(self, fft_size: int, hop_size: int, window_size: int, mel_size: int, sample_rate: int):
+    def __init__(
+        self,
+        fft_size: int,
+        hop_size: int,
+        window_size: int,
+        mel_size: int,
+        sample_rate: int,
+        min_freq: float,
+        max_freq: float,
+    ):
         super().__init__()
         self.mel_spectrogram = LogMelSpectrogram(
             fft_size=fft_size,
@@ -114,6 +123,8 @@ class MelSpectrogramLoss(nn.Module):
             window_size=window_size,
             mel_size=mel_size,
             sample_rate=sample_rate,
+            min_freq=min_freq,
+            max_freq=max_freq,
             from_linear=True,
         )
         self.l1_loss_fn = nn.L1Loss(reduction="mean")
