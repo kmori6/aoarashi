@@ -5,7 +5,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from aoarashi.utils.tokenizer import normalize_text
+from konpeki.utils.tokenizer import normalize_text
 
 DATA_DICT = {
     "training": {"key": "train", "files": ["europarl-v7.de-en", "commoncrawl.de-en", "news-commentary-v9.de-en"]},

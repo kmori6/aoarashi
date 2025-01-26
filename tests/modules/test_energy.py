@@ -1,6 +1,6 @@
 import torch
 
-from aoarashi.modules.energy import Energy
+from konpeki.modules.energy import Energy
 
 
 def test_energy():

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import torchaudio
 
-from aoarashi.utils.tokenizer import normalize_text
+from konpeki.utils.tokenizer import normalize_text
 
 
 def main():

@@ -1,6 +1,6 @@
 import numpy as np
 
-from aoarashi.modules.glow_tts import monotonic_alignment_search
+from konpeki.modules.glow_tts import monotonic_alignment_search
 
 
 def test_monotonic_alignment_search():

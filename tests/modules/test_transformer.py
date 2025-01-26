@@ -3,7 +3,7 @@ import math
 import pytest
 import torch
 
-from aoarashi.modules.transformer import (
+from konpeki.modules.transformer import (
     Decoder,
     DecoderLayer,
     Encoder,

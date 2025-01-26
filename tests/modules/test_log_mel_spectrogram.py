@@ -1,6 +1,6 @@
 import torch
 
-from aoarashi.modules.log_mel_spectrogram import LogMelSpectrogram
+from konpeki.modules.log_mel_spectrogram import LogMelSpectrogram
 
 
 def test_log_mel_spectrogram():

@@ -22,7 +22,7 @@ poetry run python tokenizer.py \
 
 ## Train model
 ```bash
-poetry run python ../../src/aoarashi/tasks/mt/train.py \
+poetry run python -m konpeki.tasks.mt.train \
     --config-path=$(pwd) \
     --config-name="config" \
     dataset.train_json_path="data/train.json" \
@@ -34,7 +34,7 @@ poetry run python ../../src/aoarashi/tasks/mt/train.py \
 
 ## Evaluate model
 ```bash
-poetry run python ../../src/aoarashi/tasks/mt/evaluate.py \
+poetry run python -m konpeki.task.mt.evaluate \
     --config-path="$(pwd)" \
     --config-name="config" \
     dataset.test_json_path="data/test.json" \

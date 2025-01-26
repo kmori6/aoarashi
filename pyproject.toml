@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "aoarashi"
+name = "konpeki"
 version = "0.1.0"
 description = "Language Processing Toolkit"
 authors = ["Kosuke Mori <kosuke.mori.5120@gmail.com>"]

@@ -1,6 +1,6 @@
 import torch
 
-from aoarashi.modules.eats import GaussianResampling
+from konpeki.modules.eats import GaussianResampling
 
 
 def test_gaussian_resampling():
