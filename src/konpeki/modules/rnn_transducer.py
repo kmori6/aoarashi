@@ -4,8 +4,32 @@ Proposed in A. Graves et al., "Speech recognition with deep recrrent neural netw
 
 """
 
+from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
+
+
+@dataclass
+class Sequence:
+    """Sequence dataclass for output sequence beam search.
+
+    Args:
+        token (list[int]): Token list corresponding to y vector in the paper.
+        hidden_state (torch.Tensor): Hidden state tensor for the prediction network
+            (num_layers, batch_size, hidden_size).
+        cell_state (torch.Tensor): Cell state tensor for the prediction network
+            (num_layers, batch_size, hidden_size).
+        total_score (float): Total probability in log scale for efficient computation
+            corresponding to Pr(y) in the paper.
+        score_history (list[float]): Score history for prefix offset calculation.
+    """
+
+    token: list[int]
+    hidden_state: torch.Tensor
+    cell_state: torch.Tensor
+    total_score: float
+    score_history: list[float]
 
 
 class PredictionNetwork(nn.Module):
@@ -25,23 +49,25 @@ class PredictionNetwork(nn.Module):
         return h, c
 
     def forward(
-        self, token: torch.Tensor, state: torch.Tensor
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
+        self, token: torch.Tensor, hidden_state: torch.Tensor, cell_state: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
 
         Args:
             token (torch.Tensor): Token tensor (batch_size, sequence_length).
-            state (torch.Tensor): Hidden state (h, c) tensor (num_layers, batch_size, hidden_size).
+            hidden_state (torch.Tensor): Hidden state tensor (num_layers, batch_size, hidden_size).
+            cell_state (torch.Tensor): Cell state tensor (num_layers, batch_size, hidden_size).
 
         Returns:
             tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
                 torch.Tensor: Hidden state tensor (batch_size, sequence_length, hidden_size).
-                tuple[torch.Tensor, torch.Tensor]: Hidden state (h, c) tensor (num_layers, batch_size, hidden_size).
+                torch.Tensor: Hidden state tensor (num_layers, batch_size, hidden_size).
+                torch.Tensor: Cell state tensor (num_layers, batch_size, hidden_size).
         """
         x = self.embed(token)  # (batch_size, sequence_length, hidden_size)
         x = self.dropout(x)
-        x, (h, c) = self.lstm(x, state)
-        return x, (h, c)
+        x, (h, c) = self.lstm(x, (hidden_state, cell_state))
+        return x, h, c
 
 
 class JointNetwork(nn.Module):
@@ -68,3 +94,80 @@ class JointNetwork(nn.Module):
         x = self.dropout(x)
         x = self.w_h(x)  # (batch_size, frame_length, sequence_length, vocab_size)
         return x
+
+
+@torch.no_grad()
+def beam_search(
+    x: torch.Tensor,
+    prediction_network: PredictionNetwork,
+    joint_network: JointNetwork,
+    beam_width: int,
+    blank_token_id: int,
+) -> Sequence:
+    """Beam search algorithm for RNN-T model.
+
+    Proposed in A. Graves, "Sequence transduction with recurrent neural networks,"
+    arXiv preprint arXiv:1211.3711, 2012.
+
+    Args:
+        x (torch.Tensor): Encoder embedding tensor (batch_size, frame_length, encoder_size).
+        beam_width (int): Beam width.
+        blank_token_id (int): Blank token ID.
+
+    Returns:
+        Sequence: Decoded sequence with highest log probability.
+    """
+    # Initalize: B = {\varnothing}; Pr(\varnothing) = 1
+    # NOTE: use log probability instead of probability for easier computation
+    h, c = prediction_network.init_state(1, x.device)
+    B = [
+        Sequence(
+            token=[blank_token_id],
+            hidden_state=h,
+            cell_state=c,
+            total_score=0.0,
+            score_history=[0.0],
+        )
+    ]
+    for t in range(x.shape[1]):
+        A = B
+        B = []
+        for y in A:
+            # Pr(y) += \Sigma_{\hat{y} \in pref(y) \cap A} Pr(\hat{y}) Pr(y|\hat{y},t)
+            ys_hat = [_y for _y in A if _y.token in [y.token[:i] for i in range(len(y.token))]]
+            for y_hat in ys_hat:
+                y.total_score = torch.logsumexp(
+                    torch.tensor([y.total_score] + y.score_history[len(y_hat.token) :]), dim=0
+                ).item()
+        while len([_y for _y in B if _y.total_score > max(A, key=lambda x: x.total_score).total_score]) <= beam_width:
+            # y^∗ = most probable in A
+            y_star = max(A, key=lambda x: x.total_score)
+            # Remove y^∗ from A
+            A = [_y for _y in A if _y.total_score != y_star.total_score]
+            # Pr(y^∗) = Pr(y^∗) Pr(\varnothing|y, t)
+            # WARNING: use y^* instead of y because y is not defined
+            z, h, c = prediction_network(
+                token=torch.tensor([y_star.token[-1:]], dtype=torch.long, device=x.device),
+                hidden_state=y_star.hidden_state,
+                cell_state=y_star.cell_state,
+            )
+            scores = torch.log_softmax(joint_network(x[:, t : t + 1, None, :], z[:, None, :, :]), dim=-1).squeeze()
+            y_star.total_score += scores[-1].item()
+            # Add y^∗ to B
+            B.append(y_star)
+            # NOTE: limit the number of k \in Y to the beam width
+            for score, k in zip(*torch.topk(scores[:-1], beam_width)):
+                # Pr(y^∗ + k) = Pr(y^∗) Pr(k|y^∗, t)
+                A.append(
+                    Sequence(
+                        token=y_star.token + [k.item()],
+                        hidden_state=h,
+                        cell_state=c,
+                        total_score=y_star.total_score + score.item(),
+                        score_history=y_star.score_history + [score.item()],
+                    )
+                )
+        # Remove all but the W most probable from B
+        B = sorted(B, key=lambda x: x.total_score, reverse=True)[:beam_width]
+    # Return: y with highest log Pr(y)/|y| in B
+    return max(B, key=lambda x: x.total_score / len(x.token))

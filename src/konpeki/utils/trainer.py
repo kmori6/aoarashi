@@ -1,5 +1,4 @@
 import json
-import math
 import os
 from logging import getLogger
 from pathlib import Path
@@ -65,10 +64,11 @@ class Trainer:
                 lambda s: s / warmup_steps if s < warmup_steps else (total_step - s) / (total_step - warmup_steps),
             )
         elif self.config.scheduler.type == "transformer":
-            # NOTE: avoid division where step starts from 1
+            # NOTE: peak lr is lr / sqrt(warmup_steps)
+            # when we spedify the peak lr explicitly give the value multiplied by sqrt(warmup_steps)
             return LambdaLR(
                 self.optimizer,
-                lambda s: 0.0 if s == 0 else min(s**-0.5, s * warmup_steps**-1.5) * math.sqrt(warmup_steps),
+                lambda step: 0.0 if step == 0 else min(step**-0.5, step * warmup_steps**-1.5),
             )
         else:
             raise ValueError(f"invalid scheduler type: {self.config.scheduler.type}")

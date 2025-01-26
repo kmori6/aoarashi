@@ -19,8 +19,8 @@ model:
   d_ff: 2048
   num_heads: 8
   num_blocks: 18
-  chunk_size: 4
-  history_size: 4
+  chunk_size: 4 # 160 ms
+  history_size: 20 # 800 ms
   # prediction network
   hidden_size: 1024
   num_layers: 2
@@ -46,15 +46,15 @@ dataloader:
 
 train:
   optimizer:
-    type: adamw
-    lr: 1e-4
+    type: adam
+    lr: 0.056 # 1 / sqrt(d_model)
     beta1: 0.9
     beta2: 0.98
     eps: 1e-9
-    weight_decay: 1e-2
+    weight_decay: 0.0
   scheduler:
     type: transformer
-    warmup_steps: 5000
+    warmup_steps: 4000
   epochs: 50
   grad_accum_steps: 4
   log_steps: 100
