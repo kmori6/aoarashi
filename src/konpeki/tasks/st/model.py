@@ -6,12 +6,7 @@ from torchaudio.transforms import RNNTLoss
 
 from konpeki.modules.conformer import ConvolutionSubsampling
 from konpeki.modules.log_mel_spectrogram import LogMelSpectrogram
-from konpeki.modules.rnn_transducer import (
-    JointNetwork,
-    PredictionNetwork,
-    Sequence,
-    beam_search,
-)
+from konpeki.modules.rnn_transducer import JointNetwork, PredictionNetwork, Sequence, beam_search
 from konpeki.modules.transformer import EncoderLayer, PositionalEncoding
 from konpeki.utils.mask import streaming_mask
 

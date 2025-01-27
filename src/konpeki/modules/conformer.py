@@ -8,10 +8,7 @@ in Interspeech, 2020, pp. 5036-5040.
 import torch
 import torch.nn as nn
 
-from konpeki.modules.transformer import (
-    FeedForward,
-    RelativePositionalMultiHeadAttention,
-)
+from konpeki.modules.transformer import FeedForward, RelativePositionalMultiHeadAttention
 from konpeki.utils.mask import sequence_mask
 
 
