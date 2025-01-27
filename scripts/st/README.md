@@ -46,5 +46,5 @@ poetry run python -m konpeki.tasks.st.evaluate \
     dataset.test_json_path="data/test.json" \
     tokenizer.model_path="results/tokenizer.model" \
     evaluate.out_dir="results" \
-    evaluate.model_path="<checkpoint_path>"
+    evaluate.model_path="results/best_model.pt"
 ```

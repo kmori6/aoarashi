@@ -54,9 +54,7 @@ def main():
             assert audio_info.num_channels == 1
             assert audio_info.sample_rate == 48000
             audio_length = audio_info.num_frames
-            if key in ["train", "valid"] and (
-                audio_length < args.min_duration * 48000 or args.max_duration * 48000 < audio_length
-            ):
+            if audio_length < args.min_duration * 48000 or args.max_duration * 48000 < audio_length:
                 continue
             sample = {"audio_path": audio_path, "audio_length": audio_length, "text": text}
             dic[utt_id] = sample

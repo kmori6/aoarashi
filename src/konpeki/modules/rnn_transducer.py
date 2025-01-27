@@ -103,7 +103,9 @@ def beam_search(
     joint_network: JointNetwork,
     beam_width: int,
     blank_token_id: int,
-) -> Sequence:
+    initial_set: list[Sequence] = [],
+    return_highest: bool = False,
+) -> list[Sequence]:
     """Beam search algorithm for RNN-T model.
 
     Proposed in A. Graves, "Sequence transduction with recurrent neural networks,"
@@ -113,22 +115,26 @@ def beam_search(
         x (torch.Tensor): Encoder embedding tensor (batch_size, frame_length, encoder_size).
         beam_width (int): Beam width.
         blank_token_id (int): Blank token ID.
+        return_highest (bool): Return the highest log probability sequence.
 
     Returns:
         Sequence: Decoded sequence with highest log probability.
     """
-    # Initalize: B = {\varnothing}; Pr(\varnothing) = 1
-    # NOTE: use log probability instead of probability for easier computation
-    h, c = prediction_network.init_state(1, x.device)
-    B = [
-        Sequence(
-            token=[blank_token_id],
-            hidden_state=h,
-            cell_state=c,
-            total_score=0.0,
-            score_history=[0.0],
-        )
-    ]
+    if len(initial_set) == 0:
+        # Initalize: B = {\varnothing}; Pr(\varnothing) = 1
+        # NOTE: use log probability instead of probability for easier computation
+        h, c = prediction_network.init_state(1, x.device)
+        B = [
+            Sequence(
+                token=[blank_token_id],
+                hidden_state=h,
+                cell_state=c,
+                total_score=0.0,
+                score_history=[0.0],
+            )
+        ]
+    else:
+        B = initial_set
     for t in range(x.shape[1]):
         A = B
         B = []
@@ -169,5 +175,7 @@ def beam_search(
                 )
         # Remove all but the W most probable from B
         B = sorted(B, key=lambda x: x.total_score, reverse=True)[:beam_width]
-    # Return: y with highest log Pr(y)/|y| in B
-    return max(B, key=lambda x: x.total_score / len(x.token))
+    if return_highest:
+        # Return: y with highest log Pr(y)/|y| in B
+        return [max(B, key=lambda x: x.total_score / len(x.token))]
+    return B

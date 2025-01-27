@@ -47,7 +47,7 @@ dataloader:
 train:
   optimizer:
     type: adam
-    lr: 0.056 # 1 / sqrt(d_model)
+    lr: 0.05590017 # d_model ** -0.5
     beta1: 0.9
     beta2: 0.98
     eps: 1e-9
@@ -64,7 +64,11 @@ train:
 evaluate:
   model_path: ???
   out_dir: ???
-  beam_size: 5
+  chunk_sample: 2560 # 160 ms
+  history_sample: 12800 # 800 ms
+  chunk_size: 4 # 160 ms
+  history_size: 20 # 800 ms
+  beam_size: 4
 
 hydra:
   # https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/

@@ -56,19 +56,22 @@ class Trainer:
             raise ValueError(f"invalid optimizer name: {self.config.optimizer.name}")
 
     def _get_scheduler(self):
-        total_step = len(self.train_dataloader) // self.config.grad_accum_steps * self.config.epochs
-        warmup_steps = self.config.scheduler.warmup_steps // self.config.grad_accum_steps
         if self.config.scheduler.type == "linear":
+            total_step = len(self.train_dataloader) // self.config.grad_accum_steps * self.config.epochs
+            warmup_steps = self.config.scheduler.warmup_steps // self.config.grad_accum_steps
             return LambdaLR(
                 self.optimizer,
                 lambda s: s / warmup_steps if s < warmup_steps else (total_step - s) / (total_step - warmup_steps),
             )
         elif self.config.scheduler.type == "transformer":
-            # NOTE: peak lr is lr / sqrt(warmup_steps)
-            # when we spedify the peak lr explicitly give the value multiplied by sqrt(warmup_steps)
+            # NOTE: the peak learning rate is lr / sqrt(warmup_steps) where lr is the initial learning rate.
+            # When we specify the peak learning rate explicitly, multiply it by sqrt(warmup_steps) and set it ro lr.
             return LambdaLR(
                 self.optimizer,
-                lambda step: 0.0 if step == 0 else min(step**-0.5, step * warmup_steps**-1.5),
+                lambda step: min(
+                    (self.config.grad_accum_steps * (step + 1)) ** -0.5,
+                    (self.config.grad_accum_steps * (step + 1)) * self.config.scheduler.warmup_steps**-1.5,
+                ),
             )
         else:
             raise ValueError(f"invalid scheduler type: {self.config.scheduler.type}")
