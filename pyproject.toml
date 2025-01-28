@@ -23,7 +23,7 @@ librosa = "^0.10.2.post1"
 pysptk = "^1.0.1"
 fastdtw = "^0.3.4"
 pandas = "^2.2.3"
-
+pysndfx = "^0.3.6"
 
 [build-system]
 requires = ["poetry-core"]
