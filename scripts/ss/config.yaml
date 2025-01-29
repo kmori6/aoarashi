@@ -1,0 +1,68 @@
+dataset:
+  train_json_path: ???
+  valid_json_path: ???
+  test_json_path: ???
+
+model:
+  autoencoder_filter_size: 512
+  autoencoder_kernel_size: 16
+  autoencoder_stride: 8
+  num_speakers: 2
+  bottleneck_size: 128
+  convolutional_size: 512
+  kernel_size: 3
+  num_blocks: 8
+  num_repeats: 3
+
+dataloader:
+  train:
+    batch_size: 8
+    shuffle: true
+    num_workers: 2
+    pin_memory: true
+    drop_last: true
+  valid:
+    batch_size: 8
+    shuffle: false
+    num_workers: 2
+    pin_memory: true
+    drop_last: false
+
+train:
+  optimizer:
+    type: adam
+    lr: 2e-2 # / sqrt(wamup_steps) = 1e-3
+    beta1: 0.9
+    beta2: 0.98
+    eps: 1e-9
+    weight_decay: 0.0
+  scheduler:
+    type: transformer
+    warmup_steps: 400
+  epochs: 50
+  grad_accum_steps: 4
+  log_steps: 100
+  out_dir: ???
+  checkpoint_path:
+
+evaluate:
+  model_path: ???
+  out_dir: ???
+
+hydra:
+  # https://hydra.cc/docs/tutorials/basic/running_your_app/working_directory/
+  output_subdir: null
+  # https://hydra.cc/docs/configure_hydra/logging/
+  job_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '%(asctime)s - %(name)s - %(filename)s:%(lineno)d - %(levelname)s: %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+    root:
+      handlers: [console]
+    disable_existing_loggers: false
